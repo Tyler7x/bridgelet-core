@@ -116,7 +116,10 @@ pub trait EphemeralAccountInterface {
     fn is_expired(env: Env) -> bool;
 }
 ```
-> **⚠️ MVP:**  **authorization is not yet enforced on-chain.
+> **⚠️ MVP:** On-chain authorization is not enforced at the `EphemeralAccount` contract
+> level. Calling `EphemeralAccount::sweep()` directly bypasses all signature verification.
+> Authorization is only enforced when sweeps are routed through `SweepController`.
+> Do not call `EphemeralAccount::sweep()` directly in production.
 
 See [Bridgelet Documentation](https://github.com/bridgelet-org/bridgelet) for full API reference.
 
