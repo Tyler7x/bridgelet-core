@@ -7,6 +7,7 @@ mod storage;
 mod test;
 
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Vec};
+use native_transfer::NativeTransferContractClient as NativeTransferClient;
 
 pub use bridgelet_shared::{AccountInfo, AccountStatus, Payment};
 pub use errors::Error;
@@ -37,6 +38,7 @@ impl EphemeralAccountContract {
         creator: Address,
         expiry_ledger: u32,
         recovery_address: Address,
+        native_transfer_address: Address, 
     ) -> Result<(), Error> {
         // Check if already initialized
         if storage::is_initialized(&env) {
@@ -58,6 +60,7 @@ impl EphemeralAccountContract {
         storage::set_expiry_ledger(&env, expiry_ledger);
         storage::set_recovery_address(&env, &recovery_address);
         storage::set_status(&env, AccountStatus::Active);
+        storage::set_native_transfer_address(&env, &native_transfer_address);
         storage::init_reserve_tracking(&env, BASE_RESERVE_STROOPS);
 
         // Emit event
@@ -414,6 +417,18 @@ impl EphemeralAccountContract {
         Self::emit_and_store_reserve_event(env, event)?;
 
         Ok(reclaim_amount)
+    }
+
+      // Execute actual native XLM transfer to destination
+     if reclaim_amount > 0 {
+        let native_transfer_address = storage::get_native_transfer_address(env)
+            .ok_or(Error::NotInitialized)?;
+        let native_client = NativeTransferClient::new(env, &native_transfer_address);
+        native_client.transfer(
+            &env.current_contract_address(),
+            destination,
+            &reclaim_amount,
+        );
     }
 
     fn emit_and_store_reserve_event(env: &Env, event: ReserveReclaimed) -> Result<(), Error> {

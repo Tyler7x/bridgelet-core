@@ -17,6 +17,7 @@ pub enum DataKey {
     LastSweepId,
     ReserveEventCount,
     LastReserveEvent,
+    NativeTransferAddress,
 }
 
 // Initialization
@@ -203,4 +204,16 @@ pub fn set_last_reserve_event(env: &Env, event: &ReserveReclaimed) {
 
 pub fn get_last_reserve_event(env: &Env) -> Option<ReserveReclaimed> {
     env.storage().instance().get(&DataKey::LastReserveEvent)
+}
+
+pub fn set_native_transfer_address(env: &Env, address: &Address) {
+    env.storage()
+        .instance()
+        .set(&DataKey::NativeTransferAddress, address);
+}
+
+pub fn get_native_transfer_address(env: &Env) -> Option<Address> {
+    env.storage()
+        .instance()
+        .get(&DataKey::NativeTransferAddress)
 }
