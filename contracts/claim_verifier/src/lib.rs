@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracterror, panic_with_error, Address, BytesN, Env};
+use soroban_sdk::{contract, contracterror, contractimpl, panic_with_error, Address, BytesN, Env};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

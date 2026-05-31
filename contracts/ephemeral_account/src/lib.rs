@@ -364,8 +364,8 @@ impl EphemeralAccountContract {
         destination: &Address,
         signature: &BytesN<64>,
     ) -> Result<(), Error> {
-        let claim_verifier_address = storage::get_claim_verifier_address(env)
-            .ok_or(Error::Unauthorized)?;
+        let claim_verifier_address =
+            storage::get_claim_verifier_address(env).ok_or(Error::Unauthorized)?;
 
         let verifier = ClaimVerifierClient::new(env, &claim_verifier_address);
         let nonce = env.ledger().sequence() as u64;

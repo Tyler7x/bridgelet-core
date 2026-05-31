@@ -79,9 +79,7 @@ pub fn set_claim_verifier_address(env: &Env, address: &Address) {
 }
 
 pub fn get_claim_verifier_address(env: &Env) -> Option<Address> {
-    env.storage()
-        .instance()
-        .get(&DataKey::ClaimVerifierAddress)
+    env.storage().instance().get(&DataKey::ClaimVerifierAddress)
 }
 
 pub fn get_recovery_address(env: &Env) -> Address {

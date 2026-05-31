@@ -37,8 +37,7 @@ impl SweepController {
             return Err(Error::AuthorizationFailed);
         }
 
-    
-       // Verify and store the creator address
+        // Verify and store the creator address
         creator.require_auth();
         storage::set_creator(&env, &creator);
 
