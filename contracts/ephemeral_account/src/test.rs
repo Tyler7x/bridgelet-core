@@ -6,8 +6,9 @@ mod test {
         storage, AccountStatus, EphemeralAccountContract, EphemeralAccountContractClient,
         ReserveReclaimed,
     };
-    use claim_verifier::ClaimVerifierContract;
-    use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
+    use claim_verifier::{ClaimVerifierContract, ClaimVerifierContractClient};
+    use ed25519_dalek::{Signer, SigningKey};
+    use soroban_sdk::{testutils::Address as _, xdr::ToXdr, Address, Bytes, BytesN, Env};
 
     const BASE_RESERVE_STROOPS: i128 = 1_000_000_000;
 
@@ -17,9 +18,40 @@ mod test {
             .expect("reserve event was not emitted")
     }
 
+    fn test_signing_key() -> SigningKey {
+        SigningKey::from_bytes(&[7u8; 32])
+    }
+
     fn register_claim_verifier(env: &Env) -> Address {
         let contract_id = env.register(ClaimVerifierContract, ());
+        let client = ClaimVerifierContractClient::new(env, &contract_id);
+        let signing_key = test_signing_key();
+        let public_key = BytesN::from_array(env, &signing_key.verifying_key().to_bytes());
+        client.initialize(&public_key);
         contract_id
+    }
+
+    fn sign_sweep_authorization(
+        env: &Env,
+        claim_verifier_address: &Address,
+        destination: &Address,
+    ) -> BytesN<64> {
+        let nonce = env.ledger().sequence() as u64;
+        let mut message = Bytes::new(env);
+        message.append(&destination.to_xdr(env));
+        message.push_back(((nonce >> 56) & 0xFF) as u8);
+        message.push_back(((nonce >> 48) & 0xFF) as u8);
+        message.push_back(((nonce >> 40) & 0xFF) as u8);
+        message.push_back(((nonce >> 32) & 0xFF) as u8);
+        message.push_back(((nonce >> 24) & 0xFF) as u8);
+        message.push_back(((nonce >> 16) & 0xFF) as u8);
+        message.push_back(((nonce >> 8) & 0xFF) as u8);
+        message.push_back((nonce & 0xFF) as u8);
+        message.append(&claim_verifier_address.to_xdr(env));
+
+        let digest: BytesN<32> = env.crypto().sha256(&message).into();
+        let signature = test_signing_key().sign(&digest.to_array()).to_bytes();
+        BytesN::from_array(env, &signature)
     }
 
     fn initialize_ephemeral_account(
@@ -156,7 +188,7 @@ mod test {
         );
         client.record_payment(&100, &asset);
 
-        let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
+        let auth_sig = sign_sweep_authorization(&env, &claim_verifier_address, &destination);
         client.sweep(&destination, &auth_sig);
 
         assert_eq!(client.get_status(), AccountStatus::Swept);
@@ -291,7 +323,7 @@ mod test {
         client.record_payment(&100, &asset1);
         client.record_payment(&200, &asset2);
 
-        let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
+        let auth_sig = sign_sweep_authorization(&env, &claim_verifier_address, &destination);
         client.sweep(&destination, &auth_sig);
 
         assert_eq!(client.get_status(), AccountStatus::Swept);
@@ -331,7 +363,7 @@ mod test {
         );
         client.record_payment(&100, &asset);
 
-        let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
+        let auth_sig = sign_sweep_authorization(&env, &claim_verifier_address, &destination);
         client.sweep(&destination, &auth_sig);
 
         assert_eq!(client.get_reserve_remaining(), 0);
@@ -379,7 +411,7 @@ mod test {
             storage::set_available_reserve(&env, initial_available);
         });
 
-        let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
+        let auth_sig = sign_sweep_authorization(&env, &claim_verifier_address, &destination);
         client.sweep(&destination, &auth_sig);
 
         let expected_remaining = BASE_RESERVE_STROOPS - initial_available;
@@ -438,7 +470,7 @@ mod test {
         );
         client.record_payment(&100, &asset);
 
-        let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
+        let auth_sig = sign_sweep_authorization(&env, &claim_verifier_address, &destination);
         client.sweep(&destination, &auth_sig);
 
         let reserve_events_before = client.get_reserve_reclaim_event_count();
