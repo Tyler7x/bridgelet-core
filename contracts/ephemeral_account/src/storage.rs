@@ -66,12 +66,6 @@ pub fn set_native_transfer_address(env: &Env, address: &Address) {
         .set(&DataKey::NativeTransferAddress, address);
 }
 
-pub fn get_native_transfer_address(env: &Env) -> Option<Address> {
-    env.storage()
-        .instance()
-        .get(&DataKey::NativeTransferAddress)
-}
-
 pub fn set_claim_verifier_address(env: &Env, address: &Address) {
     env.storage()
         .instance()
