@@ -6,9 +6,33 @@ mod test {
         storage, AccountStatus, EphemeralAccountContract, EphemeralAccountContractClient,
         ReserveReclaimed,
     };
-    use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
+    use native_transfer::{NativeTransferContract, NativeTransferContractClient};
+    use soroban_sdk::{
+        testutils::Address as _,
+        token::StellarAssetClient,
+        Address, BytesN, Env,
+    };
 
     const BASE_RESERVE_STROOPS: i128 = 1_000_000_000;
+
+    struct NativeTransferSetup {
+        nt_address: Address,
+        token_address: Address,
+    }
+
+    fn setup_native_transfer(env: &Env, contract_id: &Address, amount: i128) -> NativeTransferSetup {
+        let token_admin = Address::generate(env);
+        let token = env.register_stellar_asset_contract_v2(token_admin);
+        StellarAssetClient::new(env, &token.address()).mint(contract_id, &amount);
+
+        let nt_id = env.register(NativeTransferContract, ());
+        NativeTransferContractClient::new(env, &nt_id).initialize(&token.address());
+
+        NativeTransferSetup {
+            nt_address: nt_id,
+            token_address: token.address(),
+        }
+    }
 
     fn latest_reserve_event(client: &EphemeralAccountContractClient) -> ReserveReclaimed {
         client
@@ -27,8 +51,9 @@ mod test {
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
+        let setup = setup_native_transfer(&env, &contract_id, BASE_RESERVE_STROOPS);
 
-        client.initialize(&creator, &expiry_ledger, &recovery);
+        client.initialize(&creator, &expiry_ledger, &recovery, &setup.nt_address);
 
         assert_eq!(client.get_status(), AccountStatus::Active);
         assert!(!client.is_expired());
@@ -49,8 +74,9 @@ mod test {
         let recovery = Address::generate(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
+        let setup = setup_native_transfer(&env, &contract_id, BASE_RESERVE_STROOPS);
 
-        client.initialize(&creator, &expiry_ledger, &recovery);
+        client.initialize(&creator, &expiry_ledger, &recovery, &setup.nt_address);
         client.record_payment(&100, &asset);
 
         assert_eq!(client.get_status(), AccountStatus::PaymentReceived);
@@ -69,8 +95,9 @@ mod test {
         let asset1 = Address::generate(&env);
         let asset2 = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
+        let setup = setup_native_transfer(&env, &contract_id, BASE_RESERVE_STROOPS);
 
-        client.initialize(&creator, &expiry_ledger, &recovery);
+        client.initialize(&creator, &expiry_ledger, &recovery, &setup.nt_address);
 
         client.record_payment(&100, &asset1);
         let info = client.get_info();
@@ -96,8 +123,9 @@ mod test {
         let asset = Address::generate(&env);
         let destination = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
+        let setup = setup_native_transfer(&env, &contract_id, BASE_RESERVE_STROOPS);
 
-        client.initialize(&creator, &expiry_ledger, &recovery);
+        client.initialize(&creator, &expiry_ledger, &recovery, &setup.nt_address);
         client.record_payment(&100, &asset);
 
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
@@ -128,8 +156,9 @@ mod test {
         let recovery = Address::generate(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
+        let setup = setup_native_transfer(&env, &contract_id, BASE_RESERVE_STROOPS);
 
-        client.initialize(&creator, &expiry_ledger, &recovery);
+        client.initialize(&creator, &expiry_ledger, &recovery, &setup.nt_address);
         client.record_payment(&100, &asset);
         client.record_payment(&50, &asset);
     }
@@ -145,8 +174,9 @@ mod test {
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
+        let setup = setup_native_transfer(&env, &contract_id, BASE_RESERVE_STROOPS);
 
-        client.initialize(&creator, &expiry_ledger, &recovery);
+        client.initialize(&creator, &expiry_ledger, &recovery, &setup.nt_address);
 
         for i in 0..10 {
             let asset = Address::generate(&env);
@@ -169,8 +199,9 @@ mod test {
         let recovery = Address::generate(&env);
         let destination = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
+        let setup = setup_native_transfer(&env, &contract_id, BASE_RESERVE_STROOPS);
 
-        client.initialize(&creator, &expiry_ledger, &recovery);
+        client.initialize(&creator, &expiry_ledger, &recovery, &setup.nt_address);
 
         let asset1 = Address::generate(&env);
         let asset2 = Address::generate(&env);
@@ -205,8 +236,9 @@ mod test {
         let destination = Address::generate(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
+        let setup = setup_native_transfer(&env, &contract_id, BASE_RESERVE_STROOPS);
 
-        client.initialize(&creator, &expiry_ledger, &recovery);
+        client.initialize(&creator, &expiry_ledger, &recovery, &setup.nt_address);
         client.record_payment(&100, &asset);
 
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
@@ -241,10 +273,12 @@ mod test {
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery);
+        let initial_available = 250_000_000i128;
+        let setup = setup_native_transfer(&env, &contract_id, initial_available);
+
+        client.initialize(&creator, &expiry_ledger, &recovery, &setup.nt_address);
         client.record_payment(&100, &asset);
 
-        let initial_available = 250_000_000i128;
         env.as_contract(&contract_id, || {
             storage::set_available_reserve(&env, initial_available);
         });
@@ -268,6 +302,9 @@ mod test {
         assert_eq!(no_balance_reclaim, 0);
         assert_eq!(client.get_reserve_remaining(), expected_remaining);
         assert!(!client.is_reserve_reclaimed());
+
+        // Mint remaining tokens so the final reclaim transfer can succeed
+        StellarAssetClient::new(&env, &setup.token_address).mint(&contract_id, &expected_remaining);
 
         env.as_contract(&contract_id, || {
             storage::set_available_reserve(&env, expected_remaining);
@@ -296,8 +333,9 @@ mod test {
         let destination = Address::generate(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
+        let setup = setup_native_transfer(&env, &contract_id, BASE_RESERVE_STROOPS);
 
-        client.initialize(&creator, &expiry_ledger, &recovery);
+        client.initialize(&creator, &expiry_ledger, &recovery, &setup.nt_address);
         client.record_payment(&100, &asset);
 
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
