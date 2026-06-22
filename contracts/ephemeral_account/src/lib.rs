@@ -32,11 +32,13 @@ impl EphemeralAccountContract {
     ///
     /// # Errors
     /// Returns Error::AlreadyInitialized if called more than once
+    
     pub fn initialize(
         env: Env,
         creator: Address,
         expiry_ledger: u32,
         recovery_address: Address,
+        authorized_controller: Address,
     ) -> Result<(), Error> {
         // Check if already initialized
         if storage::is_initialized(&env) {
@@ -58,6 +60,7 @@ impl EphemeralAccountContract {
         storage::set_expiry_ledger(&env, expiry_ledger);
         storage::set_recovery_address(&env, &recovery_address);
         storage::set_status(&env, AccountStatus::Active);
+        storage::set_authorized_controller(&env, &authorized_controller);
         storage::init_reserve_tracking(&env, BASE_RESERVE_STROOPS);
 
         // Emit event
@@ -352,14 +355,14 @@ impl EphemeralAccountContract {
 
     // Private helper functions
 
-    fn verify_sweep_authorization(
-        _env: &Env,
+  fn verify_sweep_authorization(
+        env: &Env,
         _destination: &Address,
         _signature: &BytesN<64>,
     ) -> Result<(), Error> {
-        // TODO: Implement proper signature verification
-        // For MVP, we rely on off-chain SDK to only call with valid auth
-        // Future: Verify signature against authorized signer
+        let controller = storage::get_authorized_controller(env)
+            .ok_or(Error::Unauthorized)?;
+        controller.require_auth();
         Ok(())
     }
 
