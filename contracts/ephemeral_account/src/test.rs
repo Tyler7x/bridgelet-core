@@ -7,6 +7,8 @@ mod test {
         ReserveReclaimed,
     };
     use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, BytesN, Env};
+    use soroban_sdk::testutils::Ledger;
+    use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
 
     const BASE_RESERVE_STROOPS: i128 = 1_000_000_000;
 
@@ -359,5 +361,83 @@ mod test {
             client.get_reserve_reclaim_event_count(),
             reserve_events_before
         );
+    }
+
+    #[test]
+    fn test_expire_returns_funds_to_recovery() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(EphemeralAccountContract, ());
+        let client = EphemeralAccountContractClient::new(&env, &contract_id);
+
+        let creator = Address::generate(&env);
+        let recovery = Address::generate(&env);
+        let controller = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let expiry_ledger = env.ledger().sequence() + 10;
+
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller);
+        client.record_payment(&500, &asset);
+
+        // Advance ledger past expiry
+        env.ledger().with_mut(|l| {
+            l.sequence_number = expiry_ledger + 1;
+        });
+
+        assert!(client.is_expired());
+        client.expire();
+
+        assert_eq!(client.get_status(), AccountStatus::Expired);
+
+        let reserve_event = latest_reserve_event(&client);
+        assert_eq!(reserve_event.destination, recovery);
+        assert!(reserve_event.fully_reclaimed);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #6)")]
+    fn test_expire_before_expiry_ledger_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(EphemeralAccountContract, ());
+        let client = EphemeralAccountContractClient::new(&env, &contract_id);
+
+        let creator = Address::generate(&env);
+        let recovery = Address::generate(&env);
+        let controller = Address::generate(&env);
+        let expiry_ledger = env.ledger().sequence() + 1000;
+
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller);
+
+        // Attempt to expire before expiry ledger — should return NotExpired (#6)
+        client.expire();
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #7)")]
+    fn test_sweep_after_already_swept_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(EphemeralAccountContract, ());
+        let client = EphemeralAccountContractClient::new(&env, &contract_id);
+
+        let creator = Address::generate(&env);
+        let recovery = Address::generate(&env);
+        let controller = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let destination = Address::generate(&env);
+        let expiry_ledger = env.ledger().sequence() + 1000;
+
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller);
+        client.record_payment(&100, &asset);
+
+        let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
+        client.sweep(&destination, &auth_sig);
+
+        // Second sweep attempt — should return AlreadySwept (#7)
+        client.sweep(&destination, &auth_sig);
     }
 }
