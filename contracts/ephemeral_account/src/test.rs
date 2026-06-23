@@ -6,7 +6,7 @@ mod test {
         storage, AccountStatus, EphemeralAccountContract, EphemeralAccountContractClient,
         ReserveReclaimed,
     };
-    use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
+    use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, BytesN, Env};
 
     const BASE_RESERVE_STROOPS: i128 = 1_000_000_000;
 
