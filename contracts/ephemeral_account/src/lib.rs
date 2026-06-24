@@ -7,7 +7,6 @@ mod storage;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, Vec};
 pub use bridgelet_shared::{AccountInfo, AccountStatus, Payment};
 pub use errors::Error;
 pub use events::{
@@ -15,6 +14,8 @@ pub use events::{
     SweepExecutedMulti,
 };
 pub use storage::DataKey;
+
+use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, Vec};
 const BASE_RESERVE_STROOPS: i128 = 1_000_000_000;
 const CONTRACT_VERSION: u32 = 1;
 #[contract]
