@@ -40,6 +40,24 @@ mod test {
     }
 
     #[test]
+    fn test_version_stored_on_initialize() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(EphemeralAccountContract, ());
+        let client = EphemeralAccountContractClient::new(&env, &contract_id);
+
+        let creator = Address::generate(&env);
+        let recovery = Address::generate(&env);
+        let controller = Address::generate(&env);
+        let expiry_ledger = env.ledger().sequence() + 1000;
+
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller);
+
+        assert_eq!(client.version(), 1);
+    }
+
+    #[test]
     fn test_record_payment() {
         let env = Env::default();
         env.mock_all_auths();

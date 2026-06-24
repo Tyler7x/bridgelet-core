@@ -18,6 +18,7 @@ pub enum DataKey {
     ReserveEventCount,
     LastReserveEvent,
     AuthorizedController,
+    ContractVersion,
 }
 
 // Initialization
@@ -204,6 +205,20 @@ pub fn set_last_reserve_event(env: &Env, event: &ReserveReclaimed) {
 
 pub fn get_last_reserve_event(env: &Env) -> Option<ReserveReclaimed> {
     env.storage().instance().get(&DataKey::LastReserveEvent)
+}
+
+// Contract version
+pub fn set_contract_version(env: &Env, version: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::ContractVersion, &version);
+}
+
+pub fn get_contract_version(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::ContractVersion)
+        .unwrap_or(0)
 }
 
 // Authorized controller

@@ -70,6 +70,13 @@ Checks if the account has passed its expiry ledger.
 fn is_expired(env: Env) -> bool
 ```
 
+#### `version`
+Returns the contract version stored at initialization. Useful for on-chain migration checks.
+
+```rust
+fn version(env: Env) -> u32
+```
+
 #### `get_status`
 Returns the current status of the account (Active, PaymentReceived, Swept, Expired).
 

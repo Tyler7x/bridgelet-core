@@ -17,6 +17,7 @@ pub use events::{
 pub use storage::DataKey;
 
 const BASE_RESERVE_STROOPS: i128 = 1_000_000_000;
+const CONTRACT_VERSION: u32 = 1;
 
 #[contract]
 pub struct EphemeralAccountContract;
@@ -61,6 +62,7 @@ impl EphemeralAccountContract {
         storage::set_status(&env, AccountStatus::Active);
         storage::set_authorized_controller(&env, &authorized_controller);
         storage::init_reserve_tracking(&env, BASE_RESERVE_STROOPS);
+        storage::set_contract_version(&env, CONTRACT_VERSION);
 
         // Emit event
         events::emit_account_created(&env, creator, expiry_ledger);
@@ -196,6 +198,11 @@ impl EphemeralAccountContract {
         let current_ledger = env.ledger().sequence();
 
         current_ledger >= expiry_ledger
+    }
+
+    /// Get the contract version stored at initialization
+    pub fn version(env: Env) -> u32 {
+        storage::get_contract_version(&env)
     }
 
     /// Get current account status
