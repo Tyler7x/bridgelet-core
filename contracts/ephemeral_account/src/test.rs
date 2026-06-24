@@ -456,12 +456,14 @@ mod test {
 
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &relayer);
         client.record_payment(&100, &asset);
-        assert_eq!(client.get_status(), AccountStatus::PaymentReceived);
 
-        // Verify the relayer address appears in the Soroban auth tree
+        // env.auths() returns auths from the last contract invocation only.
+        // Check immediately after record_payment before any other call.
+        let auths = env.auths();
         assert!(
-            env.auths().iter().any(|(addr, _)| *addr == relayer),
+            auths.iter().any(|(addr, _)| *addr == relayer),
             "relayer.require_auth() must be called in record_payment"
         );
+        assert_eq!(client.get_status(), AccountStatus::PaymentReceived);
     }
 }
