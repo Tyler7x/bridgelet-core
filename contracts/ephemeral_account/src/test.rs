@@ -206,8 +206,8 @@ mod test {
         assert_eq!(client.get_reserve_reclaim_event_count(), 4);
     }
 
-    /// Verifies that expire() uses checked_add for payment totals and returns
-    /// InvalidAmount instead of overflowing when amounts would exceed i128::MAX.
+    /// With single-payment restriction, only one payment is recorded per account.
+    /// Verifies that expire() handles i128::MAX amount without overflow.
     #[test]
     fn test_expire_overflow_protection() {
         let env = Env::default();
@@ -220,27 +220,20 @@ mod test {
         let recovery = Address::generate(&env);
         let controller = Address::generate(&env);
         let asset1 = Address::generate(&env);
-        let asset2 = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1;
 
         client.initialize(&creator, &expiry_ledger, &recovery, &controller);
 
-        // Record two payments that would overflow i128 when summed
+        // Single payment with MAX amount — no overflow possible with one payment
         client.record_payment(&i128::MAX, &asset1);
-        client.record_payment(&1, &asset2);
 
         // Advance past expiry
         env.ledger()
             .with_mut(|l| l.sequence_number = expiry_ledger + 1);
 
-        // expire() must return an error rather than silently overflowing
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.expire();
-        }));
-        assert!(
-            result.is_err(),
-            "expire() should fail on i128 overflow in payment sum"
-        );
+        // expire() must succeed: single i128::MAX payment has no overflow risk
+        client.expire();
+        assert_eq!(client.get_status(), AccountStatus::Expired);
     }
 
     #[test]
@@ -332,3 +325,4 @@ mod test {
         client.sweep(&destination, &auth_sig);
     }
 }
+
