@@ -25,27 +25,14 @@ mod test {
     fn sign_sweep(env: &Env, destination: &Address, contract_id: &Address) -> BytesN<64> {
         let sk = SigningKey::from_bytes(&TEST_SEED);
 
-        // Mirror the message construction in verify_sweep_authorization:
-        // sha256(destination_xdr || contract_id_xdr)
-        let mut msg_bytes: std::vec::Vec<u8> = std::vec::Vec::new();
-
-        let dest_xdr = destination.to_xdr(env);
-        for i in 0..dest_xdr.len() {
-            msg_bytes.push(dest_xdr.get(i).unwrap());
-        }
-        let cid_xdr = contract_id.to_xdr(env);
-        for i in 0..cid_xdr.len() {
-            msg_bytes.push(cid_xdr.get(i).unwrap());
-        }
-
-        // SHA-256 via Soroban env — must match what the contract computes.
-        let soroban_bytes = Bytes::from_slice(env, &msg_bytes);
-        let hash: BytesN<32> = env.crypto().sha256(&soroban_bytes).into();
+        // Mirror verify_sweep_authorization: sha256(destination_xdr || contract_id_xdr)
+        let mut msg = Bytes::new(env);
+        msg.append(&destination.to_xdr(env));
+        msg.append(&contract_id.to_xdr(env));
+        let hash: BytesN<32> = env.crypto().sha256(&msg).into();
 
         let mut hash_arr = [0u8; 32];
-        for i in 0..32 {
-            hash_arr[i] = hash.get(i).unwrap();
-        }
+        Bytes::from(hash).copy_into_slice(&mut hash_arr);
 
         let sig = sk.sign(&hash_arr);
         BytesN::from_array(env, sig.to_bytes().as_ref())
