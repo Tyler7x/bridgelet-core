@@ -90,8 +90,6 @@ mod test {
         let asset1 = Address::generate(&env);
         let asset2 = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller);
-
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         client.record_payment(&100, &asset1);
@@ -114,7 +112,7 @@ mod test {
         let controller = Address::generate(&env);
         let destination = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         let asset = make_token(&env, 500, &contract_id);
         let token_client = soroban_sdk::token::TokenClient::new(&env, &asset);
@@ -140,15 +138,12 @@ mod test {
         let controller = Address::generate(&env);
         let destination = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller);
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
-        client.record_payment(&100, &asset);
 
         let asset = make_token(&env, 100, &contract_id);
         client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
-
         assert_eq!(client.get_status(), AccountStatus::Swept);
         assert_eq!(client.get_reserve_remaining(), 0);
         assert!(client.is_reserve_reclaimed());
@@ -190,8 +185,6 @@ mod test {
         let recovery = Address::generate(&env);
         let controller = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller);
-
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         for i in 0..10 {
@@ -247,7 +240,6 @@ mod test {
         let expiry_ledger = env.ledger().sequence() + 1000;
 
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
-        client.record_payment(&100, &asset);
 
         let asset = make_token(&env, 100, &contract_id);
         client.record_payment(&100, &asset);
@@ -278,6 +270,8 @@ mod test {
         let expiry_ledger = env.ledger().sequence() + 1000;
 
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+
+        let asset = make_token(&env, 100, &contract_id);
         client.record_payment(&100, &asset);
 
         let initial_available = 250_000_000i128;
@@ -359,7 +353,6 @@ mod test {
         let expiry_ledger = env.ledger().sequence() + 1000;
 
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
-        client.record_payment(&100, &asset);
 
         let asset = make_token(&env, 100, &contract_id);
         client.record_payment(&100, &asset);
@@ -415,8 +408,6 @@ mod test {
         let recovery = Address::generate(&env);
         let controller = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller);
-
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         // Attempt to expire before expiry ledger — should return NotExpired (#6)
@@ -479,7 +470,6 @@ mod test {
         let expiry_ledger = env.ledger().sequence() + 1000;
 
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
-        client.record_payment(&100, &asset);
 
         let asset = make_token(&env, 100, &contract_id);
         client.record_payment(&100, &asset);
