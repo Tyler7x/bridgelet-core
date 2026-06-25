@@ -95,6 +95,7 @@ impl EphemeralAccountContract {
         // Enforce single inbound payment restriction
         if storage::has_payment_received(&env) {
             return Err(Error::PaymentAlreadyReceived);
+        }
 
         // Check minimum payment amount
         let min_amount = storage::get_min_payment_amount(&env);
