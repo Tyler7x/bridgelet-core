@@ -13,6 +13,7 @@ pub use events::{
     AccountCreated, AccountExpired, MultiPaymentReceived, PaymentReceived, ReserveReclaimed,
     SweepExecutedMulti,
 };
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Vec};
 pub use storage::DataKey;
 
 use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, Vec};
@@ -25,9 +26,10 @@ impl EphemeralAccountContract {
     /// Initialize the ephemeral account with restrictions
     ///
     /// # Arguments
-    /// * `creator` - Address that created this account
+    /// * `creator` - Address that created this account (must sign this call)
     /// * `expiry_ledger` - Ledger number when account expires
     /// * `recovery_address` - Address to return funds if expired
+    /// * `authorized_signer` - Ed25519 public key (32 bytes) whose signatures authorize sweeps
     ///
     /// # Errors
     /// Returns Error::AlreadyInitialized if called more than once
@@ -37,6 +39,8 @@ impl EphemeralAccountContract {
         expiry_ledger: u32,
         recovery_address: Address,
         authorized_controller: Address,
+        relayer: Address,
+        authorized_signer: BytesN<32>,
         min_amount: i128,
     ) -> Result<(), Error> {
         if storage::is_initialized(&env) {
@@ -60,6 +64,8 @@ impl EphemeralAccountContract {
         storage::set_recovery_address(&env, &recovery_address);
         storage::set_status(&env, AccountStatus::Active);
         storage::set_authorized_controller(&env, &authorized_controller);
+        storage::set_relayer(&env, &relayer);
+        storage::set_authorized_signer(&env, &authorized_signer);
         storage::set_min_payment_amount(&env, min_amount);
         storage::init_reserve_tracking(&env, BASE_RESERVE_STROOPS);
         storage::set_contract_version(&env, CONTRACT_VERSION);
@@ -71,18 +77,23 @@ impl EphemeralAccountContract {
     /// Multiple payments with different assets are supported.
     ///
     /// # Arguments
-    /// * `amount` - Payment amount
-    /// * `asset` - Asset address
+    /// * `amount` - Payment amount (must be positive)
+    /// * `asset` - Asset contract address
     ///
     /// # Errors
-    /// Returns Error::InvalidAmount if amount is not positive
-    /// Returns Error::DuplicateAsset if asset already has a payment
+    /// * [`Error::NotInitialized`] – account not yet initialised
+    /// * [`Error::InvalidAmount`] – amount is not positive
+    /// * [`Error::PaymentAlreadyReceived`] – a payment was already recorded
     pub fn record_payment(env: Env, amount: i128, asset: Address) -> Result<(), Error> {
         if !storage::is_initialized(&env) {
             return Err(Error::NotInitialized);
         }
         if amount <= 0 {
             return Err(Error::InvalidAmount);
+        }
+        // Enforce single inbound payment restriction
+        if storage::has_payment_received(&env) {
+            return Err(Error::PaymentAlreadyReceived);
         }
 
         // Check minimum payment amount
@@ -145,8 +156,17 @@ impl EphemeralAccountContract {
         if Self::is_expired(env.clone()) {
             return Err(Error::AccountExpired);
         }
-
         // Verify authorization signature
+        // Note: In production, implement proper signature verification
+        // For MVP, we trust the SDK to only call with valid signatures
+        // Enforce single-destination lock.
+        if let Some(locked) = storage::get_sweep_destination(&env) {
+            if locked != destination {
+                return Err(Error::SweepDestinationLocked);
+            }
+        } else {
+            storage::set_sweep_destination(&env, &destination);
+        }
         Self::verify_sweep_authorization(&env, &destination, &auth_signature)?;
         let payments = storage::get_all_payments(&env);
         let mut payments_vec = Vec::new(&env);
@@ -340,11 +360,22 @@ impl EphemeralAccountContract {
 
     fn verify_sweep_authorization(
         env: &Env,
-        _destination: &Address,
-        _signature: &BytesN<64>,
+        destination: &Address,
+        signature: &BytesN<64>,
     ) -> Result<(), Error> {
-        let controller = storage::get_authorized_controller(env).ok_or(Error::Unauthorized)?;
-        controller.require_auth();
+        let signer = storage::get_authorized_signer(env).ok_or(Error::Unauthorized)?;
+
+        // Construct deterministic message: sha256(destination_xdr || contract_id_xdr)
+        let mut msg = soroban_sdk::Bytes::new(env);
+        msg.append(&destination.to_xdr(env));
+        msg.append(&env.current_contract_address().to_xdr(env));
+        let message_hash: BytesN<32> = env.crypto().sha256(&msg).into();
+
+        // Panics (and reverts the tx) if the signature is invalid — this is the
+        // correct Soroban pattern; no need to wrap in a separate error branch.
+        env.crypto()
+            .ed25519_verify(&signer, &message_hash.into(), signature);
+
         Ok(())
     }
 
