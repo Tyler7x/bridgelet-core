@@ -28,7 +28,7 @@ mod test {
         let recovery = Address::generate(env);
         let controller = Address::generate(env);
         let expiry_ledger = env.ledger().sequence() + 1000;
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         (creator, recovery, controller, expiry_ledger, client)
     }
     #[test]
@@ -76,9 +76,7 @@ mod test {
         env.mock_all_auths();
         let (_, _, _, _, client) = setup(&env);
         let asset = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
         assert_eq!(client.get_status(), AccountStatus::PaymentReceived);
     }
@@ -89,9 +87,6 @@ mod test {
         let (_, _, _, _, client) = setup(&env);
         let asset1 = Address::generate(&env);
         let asset2 = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
-
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         client.record_payment(&100, &asset1);
         let info = client.get_info();
@@ -105,12 +100,9 @@ mod test {
     fn test_sweep_single_asset() {
         let env = Env::default();
         env.mock_all_auths();
-        let (_, _, _, _, client) = setup(&env);
+        let (creator, recovery, controller, _, client) = setup(&env);
         let asset = Address::generate(&env);
         let destination = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
-
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
@@ -128,7 +120,7 @@ mod test {
     /// Issue #105: a sweep with a different destination must revert with
     /// Error::SweepDestinationLocked (#15).
     #[test]
-    #[should_panic(expected = "Error(Contract, #15)")]
+    #[should_panic(expected = "Error(Contract, #16)")]
     fn test_sweep_destination_locked() {
         let env = Env::default();
         env.mock_all_auths();
@@ -153,7 +145,7 @@ mod test {
         // is handled by setting the key directly)
         let contract_id2 = env.register(EphemeralAccountContract, ());
         let client2 = EphemeralAccountContractClient::new(&env, &contract_id2);
-        client2.initialize(&creator, &expiry_ledger, &recovery, &controller);
+        client2.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client2.record_payment(&100, &asset);
         // Pre-lock dest1 without sweeping
         env.as_contract(&contract_id2, || {
@@ -200,16 +192,11 @@ mod test {
     fn test_sweep_reclaims_base_reserve_success_lifecycle() {
         let env = Env::default();
         env.mock_all_auths();
-        let (_, _, _, _, client) = setup(&env);
+        let (creator, recovery, controller, _, client) = setup(&env);
         let destination = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
-
-        let asset1 = Address::generate(&env);
-        let asset2 = Address::generate(&env);
-        client.record_payment(&100, &asset1);
-        client.record_payment(&200, &asset2);
+        let asset = Address::generate(&env);
+        client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
         assert_eq!(client.get_status(), AccountStatus::Swept);
@@ -226,12 +213,10 @@ mod test {
     fn test_reserve_double_claim_prevention() {
         let env = Env::default();
         env.mock_all_auths();
-        let (_, _, _, _, client) = setup(&env);
+        let (creator, recovery, controller, _, client) = setup(&env);
         let destination = Address::generate(&env);
         let asset = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
@@ -336,15 +321,14 @@ mod test {
     fn test_replay_sweep_call_does_not_reclaim_twice() {
         let env = Env::default();
         env.mock_all_auths();
-        let (_, _, _, _, client) = setup(&env);
+        let (creator, recovery, controller, _, client) = setup(&env);
         let destination = Address::generate(&env);
         let asset = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
+        // `setup()` already initializes and records a sweep to get destination locked
         let reserve_events_before = client.get_reserve_reclaim_event_count();
         let replay_attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             client.sweep(&destination, &auth_sig);
@@ -369,8 +353,6 @@ mod test {
         let controller = Address::generate(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 10;
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller);
-
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&500, &asset);
         env.ledger().with_mut(|l| {
@@ -449,12 +431,10 @@ mod test {
     fn test_sweep_after_already_swept_rejected() {
         let env = Env::default();
         env.mock_all_auths();
-        let (_, _, _, _, client) = setup(&env);
+        let (creator, recovery, controller, _, client) = setup(&env);
         let asset = Address::generate(&env);
         let destination = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
