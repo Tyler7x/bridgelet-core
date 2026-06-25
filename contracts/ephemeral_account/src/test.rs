@@ -5,7 +5,10 @@ mod test {
         storage, AccountStatus, EphemeralAccountContract, EphemeralAccountContractClient,
         ReserveReclaimed,
     };
-    use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, BytesN, Env};
+    use ed25519_dalek::{Signer, SigningKey};
+    use soroban_sdk::{
+        testutils::Address as _, testutils::Ledger, xdr::ToXdr, Address, Bytes, BytesN, Env,
+    };
 
     const BASE_RESERVE_STROOPS: i128 = 1_000_000_000;
     fn latest_reserve_event(client: &EphemeralAccountContractClient) -> ReserveReclaimed {
@@ -21,10 +24,10 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
 
         assert_eq!(client.get_status(), AccountStatus::Active);
         assert!(!client.is_expired());
@@ -40,7 +43,7 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         assert_eq!(client.version(), 1);
@@ -53,11 +56,11 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
         client.record_payment(&100, &asset);
         assert_eq!(client.get_status(), AccountStatus::PaymentReceived);
     }
@@ -72,7 +75,7 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let asset1 = Address::generate(&env);
         let asset2 = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
@@ -90,12 +93,12 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let asset = Address::generate(&env);
         let destination = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
         client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
@@ -119,16 +122,16 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let destination = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
 
         let asset = Address::generate(&env);
         client.record_payment(&100, &asset);
 
-        let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
+        let auth_sig = sign_sweep(&env, &destination, &contract_id);
         client.sweep(&destination, &auth_sig);
         assert_eq!(client.get_status(), AccountStatus::Swept);
         assert_eq!(client.get_reserve_remaining(), 0);
@@ -148,7 +151,7 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let destination = Address::generate(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
@@ -176,12 +179,12 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let destination = Address::generate(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
         client.record_payment(&100, &asset);
         let initial_available = 250_000_000i128;
         env.as_contract(&contract_id, || {
@@ -228,11 +231,11 @@ mod test {
 
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let asset1 = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
 
         // Single payment with MAX amount — no overflow possible with one payment
         client.record_payment(&i128::MAX, &asset1);
@@ -254,7 +257,7 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let destination = Address::generate(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
@@ -283,11 +286,11 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 10;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
         client.record_payment(&500, &asset);
         // Advance ledger past expiry
         env.ledger().with_mut(|l| {
@@ -309,7 +312,7 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
         client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
@@ -327,11 +330,11 @@ mod test {
 
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &100i128);
+        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &100i128);
 
         // Payment of 50 is below minimum of 100 -- should panic with PaymentBelowMinimum (#15)
         client.record_payment(&50, &asset);
@@ -347,11 +350,11 @@ mod test {
 
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &100i128);
+        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &100i128);
 
         // Payment exactly at minimum should succeed
         client.record_payment(&100, &asset);
@@ -367,12 +370,12 @@ mod test {
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
         let asset = Address::generate(&env);
         let destination = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
         client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
@@ -391,7 +394,7 @@ mod test {
 
         let creator = Address::generate(&env);
         let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
 
         // Advance ledger so we can clearly pass a past expiry
         env.ledger().with_mut(|l| {
@@ -400,6 +403,6 @@ mod test {
 
         // expiry_ledger <= current ledger (50 <= 100) -- should return InvalidExpiry (#5)
         let expired_ledger = 50u32;
-        client.initialize(&creator, &expired_ledger, &recovery, &controller, &1i128);
+        client.initialize(&creator, &expired_ledger, &recovery, &signer, &1i128);
     }
 }
