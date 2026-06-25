@@ -127,16 +127,20 @@ impl EphemeralAccountContract {
         Ok(())
     }
 
-    /// Execute sweep to destination wallet
-    /// Transfers all funds from all assets to the specified destination atomically
+    /// Execute sweep to destination wallet.
+    ///
+    /// On the first successful call the `destination` is persisted as the locked
+    /// sweep destination for this account. Any subsequent call with a different
+    /// destination is rejected with [`Error::SweepDestinationLocked`].
     ///
     /// # Arguments
     /// * `destination` - Recipient wallet address
     /// * `auth_signature` - Authorization signature from off-chain system
     ///
     /// # Errors
-    /// Returns Error::Unauthorized if authorization fails
-    /// Returns Error::AlreadySwept if sweep already executed
+    /// * [`Error::AlreadySwept`] — sweep has already been executed
+    /// * [`Error::SweepDestinationLocked`] — destination differs from the locked address
+    /// * [`Error::Unauthorized`] — authorization check failed
     pub fn sweep(env: Env, destination: Address, auth_signature: BytesN<64>) -> Result<(), Error> {
         // Check initialized
         if !storage::is_initialized(&env) {
@@ -155,6 +159,16 @@ impl EphemeralAccountContract {
             return Err(Error::AccountExpired);
         }
         // Verify authorization signature
+        // Note: In production, implement proper signature verification
+        // For MVP, we trust the SDK to only call with valid signatures
+        // Enforce single-destination lock.
+        if let Some(locked) = storage::get_sweep_destination(&env) {
+            if locked != destination {
+                return Err(Error::SweepDestinationLocked);
+            }
+        } else {
+            storage::set_sweep_destination(&env, &destination);
+        }
         Self::verify_sweep_authorization(&env, &destination, &auth_signature)?;
         // Get all payments
         let payments = storage::get_all_payments(&env);

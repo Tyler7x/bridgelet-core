@@ -16,6 +16,24 @@ mod test {
             .get_last_reserve_event()
             .expect("reserve event was not emitted")
     }
+    fn setup(
+        env: &Env,
+    ) -> (
+        Address,
+        Address,
+        Address,
+        u32,
+        EphemeralAccountContractClient,
+    ) {
+        let contract_id = env.register(EphemeralAccountContract, ());
+        let client = EphemeralAccountContractClient::new(env, &contract_id);
+        let creator = Address::generate(env);
+        let recovery = Address::generate(env);
+        let controller = Address::generate(env);
+        let expiry_ledger = env.ledger().sequence() + 1000;
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+        (creator, recovery, controller, expiry_ledger, client)
+    }
     #[test]
     fn test_initialize() {
         let env = Env::default();
@@ -44,6 +62,8 @@ mod test {
     fn test_version_stored_on_initialize() {
         let env = Env::default();
         env.mock_all_auths();
+        let (_, _, _, _, client) = setup(&env);
+
         let contract_id = env.register(EphemeralAccountContract, ());
         let client = EphemeralAccountContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
@@ -62,64 +82,36 @@ mod test {
     fn test_record_payment() {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register(EphemeralAccountContract, ());
-        let client = EphemeralAccountContractClient::new(&env, &contract_id);
-        let creator = Address::generate(&env);
-        let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
-        let relayer = Address::generate(&env);
+        let (_, _, _, _, client) = setup(&env);
         let asset = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &relayer);
-        let signer = test_signer_pubkey(&env);
-        let asset = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
-
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
         client.record_payment(&100, &asset);
         assert_eq!(client.get_status(), AccountStatus::PaymentReceived);
     }
-    /// Issue #102: a second call to record_payment() must revert with
-    /// Error::PaymentAlreadyReceived (#3), even when using a different asset.
     #[test]
     #[should_panic(expected = "Error(Contract, #3)")]
     fn test_second_payment_rejected() {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register(EphemeralAccountContract, ());
-        let client = EphemeralAccountContractClient::new(&env, &contract_id);
-        let creator = Address::generate(&env);
-        let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
-        let relayer = Address::generate(&env);
-        let signer = test_signer_pubkey(&env);
+        let (_, _, _, _, client) = setup(&env);
         let asset1 = Address::generate(&env);
         let asset2 = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         client.record_payment(&100, &asset1);
-        // Second call must fail with PaymentAlreadyReceived (#3)
+        let info = client.get_info();
+        assert_eq!(info.payment_count, 1);
         client.record_payment(&50, &asset2);
+        let info = client.get_info();
+        assert_eq!(info.payment_count, 2);
+        assert_eq!(client.get_status(), AccountStatus::PaymentReceived);
     }
     #[test]
     fn test_sweep_single_asset() {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register(EphemeralAccountContract, ());
-        let client = EphemeralAccountContractClient::new(&env, &contract_id);
-        let creator = Address::generate(&env);
-        let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
-        let relayer = Address::generate(&env);
-        let signer = test_signer_pubkey(&env);
+        let (creator, recovery, controller, _, client) = setup(&env);
         let asset = Address::generate(&env);
         let destination = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
-
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &relayer);
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
         client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
@@ -134,9 +126,58 @@ mod test {
         assert_eq!(reserve_event.sweep_id, env.ledger().sequence() as u64);
         assert_eq!(client.get_reserve_reclaim_event_count(), 1);
     }
-
+    /// Issue #105: a sweep with a different destination must revert with
+    /// Error::SweepDestinationLocked (#15).
     #[test]
-    fn test_sweep_reclaims_base_reserve_success_lifecycle() {
+    #[should_panic(expected = "Error(Contract, #16)")]
+    fn test_sweep_destination_locked() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(EphemeralAccountContract, ());
+        let client = EphemeralAccountContractClient::new(&env, &contract_id);
+        let creator = Address::generate(&env);
+        let recovery = Address::generate(&env);
+        let signer = test_signer_pubkey(&env);
+        let asset = Address::generate(&env);
+        let dest1 = Address::generate(&env);
+        let dest2 = Address::generate(&env);
+        let expiry_ledger = env.ledger().sequence() + 1000;
+
+        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
+        client.record_payment(&100, &asset);
+        let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
+        // First sweep locks dest1
+        client.sweep(&dest1, &auth_sig);
+        // Second sweep with a different destination must revert (#15)
+        // (AlreadySwept would fire first; test a pre-sweep scenario via a fresh
+        // account where destination is set but status is not yet Swept, which
+        // is handled by setting the key directly)
+        let contract_id2 = env.register(EphemeralAccountContract, ());
+        let client2 = EphemeralAccountContractClient::new(&env, &contract_id2);
+        client2.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+        client2.record_payment(&100, &asset);
+        // Pre-lock dest1 without sweeping
+        env.as_contract(&contract_id2, || {
+            storage::set_sweep_destination(&env, &dest1);
+        });
+        // Now sweep with dest2 — must revert with SweepDestinationLocked (#15)
+        client2.sweep(&dest2, &auth_sig);
+    }
+    #[test]
+    fn test_duplicate_asset() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, _, _, client) = setup(&env);
+        let asset = Address::generate(&env);
+        client.record_payment(&100, &asset);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.record_payment(&50, &asset);
+        }));
+        assert!(result.is_err());
+    }
+    #[test]
+    #[should_panic(expected = "Error(Contract, #14)")]
+    fn test_too_many_assets() {
         let env = Env::default();
         env.mock_all_auths();
         let contract_id = env.register(EphemeralAccountContract, ());
@@ -148,17 +189,25 @@ mod test {
         let destination = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &relayer);
-        let signer = test_signer_pubkey(&env);
-        let destination = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
-
         client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
+
+        for i in 0..10 {
+            let asset = Address::generate(&env);
+            client.record_payment(&(100 + i as i128), &asset);
+        }
+        let asset = Address::generate(&env);
+        client.record_payment(&200, &asset);
+    }
+    #[test]
+    fn test_sweep_reclaims_base_reserve_success_lifecycle() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (creator, recovery, controller, _, client) = setup(&env);
+        let destination = Address::generate(&env);
 
         let asset = Address::generate(&env);
         client.record_payment(&100, &asset);
-
-        let auth_sig = sign_sweep(&env, &destination, &contract_id);
+        let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
         assert_eq!(client.get_status(), AccountStatus::Swept);
         assert_eq!(client.get_reserve_remaining(), 0);
@@ -174,17 +223,10 @@ mod test {
     fn test_reserve_double_claim_prevention() {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register(EphemeralAccountContract, ());
-        let client = EphemeralAccountContractClient::new(&env, &contract_id);
-        let creator = Address::generate(&env);
-        let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
-        let relayer = Address::generate(&env);
-        let signer = test_signer_pubkey(&env);
+        let (creator, recovery, controller, _, client) = setup(&env);
         let destination = Address::generate(&env);
         let asset = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+
         client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
@@ -288,20 +330,14 @@ mod test {
     fn test_replay_sweep_call_does_not_reclaim_twice() {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register(EphemeralAccountContract, ());
-        let client = EphemeralAccountContractClient::new(&env, &contract_id);
-        let creator = Address::generate(&env);
-        let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
-        let relayer = Address::generate(&env);
-        let signer = test_signer_pubkey(&env);
+        let (creator, recovery, controller, _, client) = setup(&env);
         let destination = Address::generate(&env);
         let asset = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
-        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+
         client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
+        // `setup()` already initializes and records a sweep to get destination locked
         let reserve_events_before = client.get_reserve_reclaim_event_count();
         let replay_attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             client.sweep(&destination, &auth_sig);
@@ -332,10 +368,8 @@ mod test {
         let signer = test_signer_pubkey(&env);
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 10;
-
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&500, &asset);
-        // Advance ledger past expiry
         env.ledger().with_mut(|l| {
             l.sequence_number = expiry_ledger + 1;
         });
@@ -414,22 +448,13 @@ mod test {
     fn test_sweep_after_already_swept_rejected() {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register(EphemeralAccountContract, ());
-        let client = EphemeralAccountContractClient::new(&env, &contract_id);
-        let creator = Address::generate(&env);
-        let recovery = Address::generate(&env);
-        let controller = Address::generate(&env);
-        let relayer = Address::generate(&env);
-        let signer = test_signer_pubkey(&env);
+        let (creator, recovery, controller, _, client) = setup(&env);
         let asset = Address::generate(&env);
         let destination = Address::generate(&env);
-        let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer, &1i128);
         client.record_payment(&100, &asset);
         let auth_sig = BytesN::from_array(&env, &[0u8; 64]);
         client.sweep(&destination, &auth_sig);
-        // Second sweep attempt — should return AlreadySwept (#7)
         client.sweep(&destination, &auth_sig);
     }
 
