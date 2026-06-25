@@ -1,6 +1,6 @@
 use crate::events::ReserveReclaimed;
 use bridgelet_shared::{AccountStatus, Payment};
-use soroban_sdk::{contracttype, Address, Env, Map};
+use soroban_sdk::{contracttype, Address, BytesN, Env, Map};
 
 #[contracttype]
 pub enum DataKey {
@@ -17,7 +17,8 @@ pub enum DataKey {
     LastSweepId,
     ReserveEventCount,
     LastReserveEvent,
-    AuthorizedController,
+    /// Ed25519 public key (32 bytes) that must sign sweep authorizations.
+    AuthorizedSigner,
     ContractVersion,
     MinPaymentAmount,
 }
@@ -237,12 +238,12 @@ pub fn get_min_payment_amount(env: &Env) -> i128 {
 }
 
 // Authorized controller
-pub fn set_authorized_controller(env: &Env, controller: &Address) {
+pub fn set_authorized_signer(env: &Env, signer: &BytesN<32>) {
     env.storage()
         .instance()
-        .set(&DataKey::AuthorizedController, controller);
+        .set(&DataKey::AuthorizedSigner, signer);
 }
 
-pub fn get_authorized_controller(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::AuthorizedController)
+pub fn get_authorized_signer(env: &Env) -> Option<BytesN<32>> {
+    env.storage().instance().get(&DataKey::AuthorizedSigner)
 }
