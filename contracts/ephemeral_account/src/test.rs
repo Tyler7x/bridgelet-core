@@ -64,7 +64,7 @@ mod test {
         let signer = test_signer_pubkey(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         assert_eq!(client.get_status(), AccountStatus::Active);
         assert!(!client.is_expired());
@@ -86,7 +86,7 @@ mod test {
         let signer = test_signer_pubkey(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         assert_eq!(client.version(), 1);
     }
@@ -105,7 +105,7 @@ mod test {
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
 
         assert_eq!(client.get_status(), AccountStatus::PaymentReceived);
@@ -126,7 +126,7 @@ mod test {
         let asset2 = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         client.record_payment(&100, &asset1);
         let info = client.get_info();
@@ -154,7 +154,7 @@ mod test {
         let destination = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
 
         let auth_sig = sign_sweep(&env, &destination, &contract_id);
@@ -187,7 +187,7 @@ mod test {
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
         client.record_payment(&50, &asset);
     }
@@ -205,7 +205,7 @@ mod test {
         let signer = test_signer_pubkey(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         for i in 0..10 {
             let asset = Address::generate(&env);
@@ -230,7 +230,7 @@ mod test {
         let destination = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         let asset1 = Address::generate(&env);
         let asset2 = Address::generate(&env);
@@ -267,7 +267,7 @@ mod test {
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
 
         let auth_sig = sign_sweep(&env, &destination, &contract_id);
@@ -303,7 +303,7 @@ mod test {
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
 
         let initial_available = 250_000_000i128;
@@ -362,7 +362,7 @@ mod test {
         let asset2 = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
 
         // Record two payments that would overflow i128 when summed
         client.record_payment(&i128::MAX, &asset1);
@@ -397,7 +397,7 @@ mod test {
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
 
         let auth_sig = sign_sweep(&env, &destination, &contract_id);
@@ -432,7 +432,7 @@ mod test {
         let asset = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 10;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&500, &asset);
 
         env.ledger().with_mut(|l| {
@@ -463,8 +463,52 @@ mod test {
         let signer = test_signer_pubkey(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
+
+        // Attempt to expire before expiry ledger — should return NotExpired (#6)
         client.expire();
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #15)")]
+    fn test_payment_below_minimum_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(EphemeralAccountContract, ());
+        let client = EphemeralAccountContractClient::new(&env, &contract_id);
+
+        let creator = Address::generate(&env);
+        let recovery = Address::generate(&env);
+        let controller = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let expiry_ledger = env.ledger().sequence() + 1000;
+
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &100i128);
+
+        // Payment of 50 is below minimum of 100 -- should panic with PaymentBelowMinimum (#15)
+        client.record_payment(&50, &asset);
+    }
+
+    #[test]
+    fn test_payment_at_minimum_accepted() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(EphemeralAccountContract, ());
+        let client = EphemeralAccountContractClient::new(&env, &contract_id);
+
+        let creator = Address::generate(&env);
+        let recovery = Address::generate(&env);
+        let controller = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let expiry_ledger = env.ledger().sequence() + 1000;
+
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &100i128);
+
+        // Payment exactly at minimum should succeed
+        client.record_payment(&100, &asset);
+        assert_eq!(client.get_status(), AccountStatus::PaymentReceived);
     }
 
     #[test]
@@ -483,7 +527,7 @@ mod test {
         let destination = Address::generate(&env);
         let expiry_ledger = env.ledger().sequence() + 1000;
 
-        client.initialize(&creator, &expiry_ledger, &recovery, &signer);
+        client.initialize(&creator, &expiry_ledger, &recovery, &controller, &1i128);
         client.record_payment(&100, &asset);
 
         let auth_sig = sign_sweep(&env, &destination, &contract_id);
@@ -507,6 +551,8 @@ mod test {
         let signer = test_signer_pubkey(&env);
         let expired_ledger = env.ledger().sequence();
 
-        client.initialize(&creator, &expired_ledger, &recovery, &signer);
+        // expiry_ledger <= current ledger (50 <= 100) -- should return InvalidExpiry (#5)
+        let expired_ledger = 50u32;
+        client.initialize(&creator, &expired_ledger, &recovery, &controller, &1i128);
     }
 }

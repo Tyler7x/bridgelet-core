@@ -40,7 +40,8 @@ impl EphemeralAccountContract {
         creator: Address,
         expiry_ledger: u32,
         recovery_address: Address,
-        authorized_signer: BytesN<32>,
+        authorized_controller: Address,
+        min_amount: i128,
     ) -> Result<(), Error> {
         // Check if already initialized
         if storage::is_initialized(&env) {
@@ -56,13 +57,19 @@ impl EphemeralAccountContract {
             return Err(Error::InvalidExpiry);
         }
 
+        // Validate min_amount is non-negative
+        if min_amount < 0 {
+            return Err(Error::InvalidAmount);
+        }
+
         // Store initialization data
         storage::set_initialized(&env, true);
         storage::set_creator(&env, &creator);
         storage::set_expiry_ledger(&env, expiry_ledger);
         storage::set_recovery_address(&env, &recovery_address);
         storage::set_status(&env, AccountStatus::Active);
-        storage::set_authorized_signer(&env, &authorized_signer);
+        storage::set_authorized_controller(&env, &authorized_controller);
+        storage::set_min_payment_amount(&env, min_amount);
         storage::init_reserve_tracking(&env, BASE_RESERVE_STROOPS);
         storage::set_contract_version(&env, CONTRACT_VERSION);
 
@@ -91,6 +98,12 @@ impl EphemeralAccountContract {
         // Validate amount
         if amount <= 0 {
             return Err(Error::InvalidAmount);
+        }
+
+        // Check minimum payment amount
+        let min_amount = storage::get_min_payment_amount(&env);
+        if amount < min_amount {
+            return Err(Error::PaymentBelowMinimum);
         }
 
         // Check for duplicate asset
@@ -188,7 +201,27 @@ impl EphemeralAccountContract {
         Ok(())
     }
 
-    /// Check if account has expired
+    /// Check whether this ephemeral account has expired.
+    ///
+    /// ## Ledger time vs wall-clock time
+    ///
+    /// Soroban smart contracts cannot safely rely on wall-clock (UNIX) time for
+    /// consensus-critical comparisons because `env.ledger().timestamp()` reflects
+    /// the timestamp set by the validator and can drift slightly between ledgers.
+    /// Instead, expiry is tracked using the **ledger sequence number**
+    /// (`env.ledger().sequence()`), which increments by exactly 1 per closed
+    /// ledger and is the canonical, manipulation-resistant clock on Stellar.
+    ///
+    /// The `expiry_ledger` stored at initialization represents the first ledger
+    /// at which the account is considered expired. On Stellar mainnet each ledger
+    /// closes approximately every 5 seconds, so the relationship between ledger
+    /// ticks and wall-clock duration is:
+    ///
+    /// ```text
+    /// expiry_ledger = current_ledger + (desired_duration_seconds / ~5)
+    /// ```
+    ///
+    /// Returns `false` if the account has not yet been initialized.
     pub fn is_expired(env: Env) -> bool {
         if !storage::is_initialized(&env) {
             return false;

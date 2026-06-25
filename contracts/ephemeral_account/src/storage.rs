@@ -20,6 +20,7 @@ pub enum DataKey {
     /// Ed25519 public key (32 bytes) that must sign sweep authorizations.
     AuthorizedSigner,
     ContractVersion,
+    MinPaymentAmount,
 }
 
 // Initialization
@@ -222,8 +223,22 @@ pub fn get_contract_version(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
-// Authorized signer (Ed25519 public key)
-pub fn set_authorized_signer(env: &Env, signer: &BytesN<32>) {
+// Minimum payment amount
+pub fn set_min_payment_amount(env: &Env, amount: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MinPaymentAmount, &amount);
+}
+
+pub fn get_min_payment_amount(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MinPaymentAmount)
+        .unwrap_or(0)
+}
+
+// Authorized controller
+pub fn set_authorized_controller(env: &Env, controller: &Address) {
     env.storage()
         .instance()
         .set(&DataKey::AuthorizedSigner, signer);
