@@ -325,4 +325,3 @@ mod test {
         client.sweep(&destination, &auth_sig);
     }
 }
-
